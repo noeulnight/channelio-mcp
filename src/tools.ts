@@ -2,11 +2,14 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
+import type { ResponseKind } from './response.js';
 import type { ApiOperation, QueryValue, ToolArguments } from './types.js';
 
 export interface ResolvedToolCall {
   operation: ApiOperation;
   arguments: ToolArguments;
+  responseMode: 'compact' | 'full';
+  responseKind: ResponseKind;
 }
 
 interface ToolEntry<Schema extends z.ZodType> {
@@ -29,8 +32,12 @@ interface MessageBlock {
 const stringId = (description: string) => z.string().min(1).describe(description);
 const expand = z.array(z.string()).describe('응답에 포함할 연관 리소스').optional();
 const cursor = z.string().describe('이전 응답의 페이지네이션 커서').optional();
-const limit = z.number().int().min(1).max(500).default(25).describe('최대 반환 항목 수');
+const limit = z.number().int().min(1).max(500).default(10).describe('최대 반환 항목 수');
 const sortOrder = z.enum(['asc', 'desc']).default('desc').describe('정렬 순서');
+const responseMode = z
+  .enum(['compact', 'full'])
+  .default('compact')
+  .describe('compact는 핵심 필드만, full은 Channel API 원본 응답을 반환');
 
 const messageBlockSchema: z.ZodType<MessageBlock> = z.lazy(() =>
   z.strictObject({
@@ -98,44 +105,46 @@ const messageBodySchema = z.strictObject({
     .optional(),
 });
 
-const userLookupSchema = z.union([
-  z.strictObject({ userId: stringId('Channel.io 유저 ID'), expand }),
-  z.strictObject({ memberId: stringId('외부 서비스 회원 ID'), expand }),
-]);
+const userLookupSchema = z
+  .strictObject({
+    userId: stringId('Channel.io 유저 ID').optional(),
+    memberId: stringId('외부 서비스 회원 ID').optional(),
+    expand,
+    responseMode,
+  })
+  .refine((args) => Boolean(args.userId) !== Boolean(args.memberId), {
+    message: 'userId 또는 memberId 중 하나만 입력해야 합니다.',
+  });
 
-const chatListSchema = z.union([
-  z.strictObject({
-    state: z.enum(['opened', 'closed', 'snoozed']).default('opened'),
-    sortOrder,
-    cursor,
-    limit,
-  }),
-  z.strictObject({ userId: stringId('Channel.io 유저 ID'), cursor, limit }),
-]);
+const chatListSchema = z.strictObject({
+  userId: stringId('특정 유저만 조회할 때 사용할 Channel.io 유저 ID').optional(),
+  state: z.enum(['opened', 'closed', 'snoozed']).default('opened'),
+  sortOrder,
+  cursor,
+  limit,
+  responseMode,
+});
 
-const chatStatusSchema = z.discriminatedUnion('state', [
-  z.strictObject({
+const chatStatusSchema = z
+  .strictObject({
     userChatId: stringId('유저챗 ID'),
-    state: z.literal('opened'),
+    state: z.enum(['opened', 'snoozed', 'closed']),
     botName: stringId('작업을 수행할 봇 이름'),
-  }),
-  z.strictObject({
-    userChatId: stringId('유저챗 ID'),
-    state: z.literal('snoozed'),
-    botName: stringId('작업을 수행할 봇 이름'),
-    duration: z.string().min(1).describe('ISO 8601 보류 기간(예: PT30M)'),
-  }),
-  z.strictObject({
-    userChatId: stringId('유저챗 ID'),
-    state: z.literal('closed'),
-    botName: stringId('작업을 수행할 봇 이름'),
-  }),
-]);
+    duration: z.string().min(1).describe('ISO 8601 보류 기간(예: PT30M)').optional(),
+    responseMode,
+  })
+  .refine((args) => (args.state === 'snoozed') === Boolean(args.duration), {
+    path: ['duration'],
+    message: 'duration은 snoozed 상태에서만 필요합니다.',
+  });
 
-const managerLookupSchema = z.union([
-  z.strictObject({ cursor, limit, expand }),
-  z.strictObject({ managerId: stringId('매니저 ID'), expand }),
-]);
+const managerLookupSchema = z.strictObject({
+  managerId: stringId('단건 조회할 매니저 ID').optional(),
+  cursor,
+  limit,
+  expand,
+  responseMode,
+});
 
 function query(values: Record<string, QueryValue | undefined>): Record<string, QueryValue> {
   return Object.fromEntries(
@@ -147,8 +156,15 @@ function route(
   method: ApiOperation['method'],
   pathTemplate: string,
   arguments_: ToolArguments,
+  selectedResponseMode: 'compact' | 'full',
+  responseKind: ResponseKind,
 ): ResolvedToolCall {
-  return { operation: { method, pathTemplate }, arguments: arguments_ };
+  return {
+    operation: { method, pathTemplate },
+    arguments: arguments_,
+    responseMode: selectedResponseMode,
+    responseKind,
+  };
 }
 
 function defineTool<Schema extends z.ZodType>(entry: ToolEntry<Schema>): ToolEntry<Schema> {
@@ -163,15 +179,27 @@ export const toolEntries = {
     schema: userLookupSchema,
     resolve: (args) => {
       const requestQuery = query({ expand: args.expand });
-      return 'userId' in args
-        ? route('get', '/open/users/{userId}', {
-            path: { userId: args.userId },
-            query: requestQuery,
-          })
-        : route('get', '/open/users/@{memberId}', {
-            path: { memberId: args.memberId },
-            query: requestQuery,
-          });
+      return args.userId
+        ? route(
+            'get',
+            '/open/users/{userId}',
+            {
+              path: { userId: args.userId },
+              query: requestQuery,
+            },
+            args.responseMode,
+            'user',
+          )
+        : route(
+            'get',
+            '/open/users/@{memberId}',
+            {
+              path: { memberId: args.memberId! },
+              query: requestQuery,
+            },
+            args.responseMode,
+            'user',
+          );
     },
   }),
   list_user_chats: defineTool({
@@ -180,40 +208,64 @@ export const toolEntries = {
     description: '전체 상담 또는 userId를 지정한 특정 유저의 상담 목록을 조회합니다.',
     schema: chatListSchema,
     resolve: (args) =>
-      'userId' in args
-        ? route('get', '/open/users/{userId}/user-chats', {
-            path: { userId: args.userId },
-            query: query({ cursor: args.cursor, limit: args.limit }),
-          })
-        : route('get', '/open/user-chats', {
-            query: query({
-              state: args.state,
-              sortOrder: args.sortOrder,
-              cursor: args.cursor,
-              limit: args.limit,
-            }),
-          }),
+      args.userId
+        ? route(
+            'get',
+            '/open/users/{userId}/user-chats',
+            {
+              path: { userId: args.userId },
+              query: query({ cursor: args.cursor, limit: args.limit }),
+            },
+            args.responseMode,
+            'userChats',
+          )
+        : route(
+            'get',
+            '/open/user-chats',
+            {
+              query: query({
+                state: args.state,
+                sortOrder: args.sortOrder,
+                cursor: args.cursor,
+                limit: args.limit,
+              }),
+            },
+            args.responseMode,
+            'userChats',
+          ),
   }),
   get_user_chat: defineTool({
     name: 'get_user_chat',
     title: '상담 상세 조회',
     description: 'userChatId로 상담 상세를 조회합니다.',
-    schema: z.strictObject({ userChatId: stringId('유저챗 ID'), expand }),
+    schema: z.strictObject({ userChatId: stringId('유저챗 ID'), expand, responseMode }),
     resolve: (args) =>
-      route('get', '/open/user-chats/{userChatId}', {
-        path: { userChatId: args.userChatId },
-        query: query({ expand: args.expand }),
-      }),
+      route(
+        'get',
+        '/open/user-chats/{userChatId}',
+        {
+          path: { userChatId: args.userChatId },
+          query: query({ expand: args.expand }),
+        },
+        args.responseMode,
+        'userChat',
+      ),
   }),
   create_user_chat: defineTool({
     name: 'create_user_chat',
     title: '신규 상담 생성',
     description: '특정 유저에게 아웃바운드 상담을 생성합니다.',
-    schema: z.strictObject({ userId: stringId('Channel.io 유저 ID') }),
+    schema: z.strictObject({ userId: stringId('Channel.io 유저 ID'), responseMode }),
     resolve: (args) =>
-      route('post', '/open/users/{userId}/user-chats', {
-        path: { userId: args.userId },
-      }),
+      route(
+        'post',
+        '/open/users/{userId}/user-chats',
+        {
+          path: { userId: args.userId },
+        },
+        args.responseMode,
+        'userChatMutation',
+      ),
   }),
   list_user_chat_messages: defineTool({
     name: 'list_user_chat_messages',
@@ -224,12 +276,19 @@ export const toolEntries = {
       sortOrder,
       cursor,
       limit,
+      responseMode,
     }),
     resolve: (args) =>
-      route('get', '/open/user-chats/{userChatId}/messages', {
-        path: { userChatId: args.userChatId },
-        query: query({ sortOrder: args.sortOrder, cursor: args.cursor, limit: args.limit }),
-      }),
+      route(
+        'get',
+        '/open/user-chats/{userChatId}/messages',
+        {
+          path: { userChatId: args.userChatId },
+          query: query({ sortOrder: args.sortOrder, cursor: args.cursor, limit: args.limit }),
+        },
+        args.responseMode,
+        'messages',
+      ),
   }),
   send_user_chat_message: defineTool({
     name: 'send_user_chat_message',
@@ -239,13 +298,20 @@ export const toolEntries = {
       userChatId: stringId('유저챗 ID'),
       botName: stringId('메시지를 전송할 봇 이름'),
       body: messageBodySchema,
+      responseMode,
     }),
     resolve: (args) =>
-      route('post', '/open/user-chats/{userChatId}/messages', {
-        path: { userChatId: args.userChatId },
-        query: { botName: args.botName },
-        body: args.body,
-      }),
+      route(
+        'post',
+        '/open/user-chats/{userChatId}/messages',
+        {
+          path: { userChatId: args.userChatId },
+          query: { botName: args.botName },
+          body: args.body,
+        },
+        args.responseMode,
+        'message',
+      ),
   }),
   get_user_chat_message_file_url: defineTool({
     name: 'get_user_chat_message_file_url',
@@ -254,12 +320,19 @@ export const toolEntries = {
     schema: z.strictObject({
       userChatId: stringId('유저챗 ID'),
       key: stringId('첨부파일 키'),
+      responseMode,
     }),
     resolve: (args) =>
-      route('get', '/open/user-chats/{userChatId}/messages/file', {
-        path: { userChatId: args.userChatId },
-        query: { key: args.key },
-      }),
+      route(
+        'get',
+        '/open/user-chats/{userChatId}/messages/file',
+        {
+          path: { userChatId: args.userChatId },
+          query: { key: args.key },
+        },
+        args.responseMode,
+        'fileUrl',
+      ),
   }),
   change_user_chat_status: defineTool({
     name: 'change_user_chat_status',
@@ -274,13 +347,19 @@ export const toolEntries = {
         closed: { method: 'patch', suffix: 'close' },
       } as const;
       const selected = statusRoute[args.state];
-      return route(selected.method, `/open/user-chats/{userChatId}/${selected.suffix}`, {
-        path: { userChatId: args.userChatId },
-        query: query({
-          botName: args.botName,
-          duration: 'duration' in args ? args.duration : undefined,
-        }),
-      });
+      return route(
+        selected.method,
+        `/open/user-chats/{userChatId}/${selected.suffix}`,
+        {
+          path: { userChatId: args.userChatId },
+          query: query({
+            botName: args.botName,
+            duration: args.duration,
+          }),
+        },
+        args.responseMode,
+        'userChatMutation',
+      );
     },
   }),
   get_managers: defineTool({
@@ -289,14 +368,26 @@ export const toolEntries = {
     description: '매니저 목록을 조회하거나 managerId를 지정해 단건을 조회합니다.',
     schema: managerLookupSchema,
     resolve: (args) =>
-      'managerId' in args
-        ? route('get', '/open/managers/{managerId}', {
-            path: { managerId: args.managerId },
-            query: query({ expand: args.expand }),
-          })
-        : route('get', '/open/managers', {
-            query: query({ cursor: args.cursor, limit: args.limit, expand: args.expand }),
-          }),
+      args.managerId
+        ? route(
+            'get',
+            '/open/managers/{managerId}',
+            {
+              path: { managerId: args.managerId },
+              query: query({ expand: args.expand }),
+            },
+            args.responseMode,
+            'manager',
+          )
+        : route(
+            'get',
+            '/open/managers',
+            {
+              query: query({ cursor: args.cursor, limit: args.limit, expand: args.expand }),
+            },
+            args.responseMode,
+            'managers',
+          ),
   }),
   assign_user_chat: defineTool({
     name: 'assign_user_chat',
@@ -306,12 +397,19 @@ export const toolEntries = {
       userChatId: stringId('유저챗 ID'),
       managerId: stringId('배정할 매니저 ID'),
       botName: stringId('작업을 수행할 봇 이름'),
+      responseMode,
     }),
     resolve: (args) =>
-      route('patch', '/open/user-chats/{userChatId}/assign-to/managers/{managerId}', {
-        path: { userChatId: args.userChatId, managerId: args.managerId },
-        query: { botName: args.botName },
-      }),
+      route(
+        'patch',
+        '/open/user-chats/{userChatId}/assign-to/managers/{managerId}',
+        {
+          path: { userChatId: args.userChatId, managerId: args.managerId },
+          query: { botName: args.botName },
+        },
+        args.responseMode,
+        'userChatMutation',
+      ),
   }),
   invite_managers_to_user_chat: defineTool({
     name: 'invite_managers_to_user_chat',
@@ -321,12 +419,19 @@ export const toolEntries = {
       userChatId: stringId('유저챗 ID'),
       managerIds: z.array(stringId('매니저 ID')).min(1),
       botName: stringId('작업을 수행할 봇 이름'),
+      responseMode,
     }),
     resolve: (args) =>
-      route('patch', '/open/user-chats/{userChatId}/invite', {
-        path: { userChatId: args.userChatId },
-        query: { managerIds: args.managerIds, botName: args.botName },
-      }),
+      route(
+        'patch',
+        '/open/user-chats/{userChatId}/invite',
+        {
+          path: { userChatId: args.userChatId },
+          query: { managerIds: args.managerIds, botName: args.botName },
+        },
+        args.responseMode,
+        'userChatMutation',
+      ),
   }),
 };
 

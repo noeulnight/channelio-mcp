@@ -37,13 +37,14 @@ describe('tool routing', () => {
   });
 
   it('routes global and user-scoped chat lists separately', () => {
-    expect(
-      toolEntries.list_user_chats.resolve(
-        toolEntries.list_user_chats.schema.parse({ state: 'closed', limit: 10 }),
-      ),
-    ).toMatchObject({
+    const global = toolEntries.list_user_chats.resolve(
+      toolEntries.list_user_chats.schema.parse({ state: 'closed' }),
+    );
+    expect(global).toMatchObject({
       operation: { pathTemplate: '/open/user-chats' },
       arguments: { query: { state: 'closed', limit: 10 } },
+      responseMode: 'compact',
+      responseKind: 'userChats',
     });
     expect(
       toolEntries.list_user_chats.resolve(
@@ -53,6 +54,13 @@ describe('tool routing', () => {
       operation: { pathTemplate: '/open/users/{userId}/user-chats' },
       arguments: { path: { userId: 'user-1' }, query: { limit: 10 } },
     });
+  });
+
+  it('allows the raw Channel API response when explicitly requested', () => {
+    const resolved = toolEntries.get_user_chat.resolve(
+      toolEntries.get_user_chat.schema.parse({ userChatId: 'chat-1', responseMode: 'full' }),
+    );
+    expect(resolved.responseMode).toBe('full');
   });
 
   it.each([
