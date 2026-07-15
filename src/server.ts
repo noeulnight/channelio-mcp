@@ -21,7 +21,9 @@ export function createServer(config: ChannelApiConfig): McpServer {
           content: [
             {
               type: 'text',
-              text: format(compactError(result.status, result.statusText, result.body)),
+              text: format(
+                compactError(result.status, result.statusText, result.body, result.retryAfter),
+              ),
             },
           ],
           isError: true,
@@ -41,6 +43,6 @@ export function createServer(config: ChannelApiConfig): McpServer {
     }
   };
 
-  registerTools(server, execute);
+  registerTools(server, execute, config.allowSend);
   return server;
 }

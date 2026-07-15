@@ -17,6 +17,9 @@ vp run build
 | `CHANNEL_ACCESS_SECRET` | 예     | -                        |
 | `CHANNEL_VERSION`       | 아니오 | `2026-06-01`             |
 | `CHANNEL_API_BASE_URL`  | 아니오 | `https://api.channel.io` |
+| `CHANNEL_ALLOW_SEND`    | 아니오 | `false`                  |
+
+`CHANNEL_ALLOW_SEND=true`일 때만 `send_user_chat_message` 도구가 노출됩니다.
 
 ## MCP 등록
 
@@ -30,7 +33,8 @@ npm 패키지를 `npx`로 실행할 수 있습니다.
       "args": ["-y", "@noeulnight/channelio-mcp@latest"],
       "env": {
         "CHANNEL_ACCESS_KEY": "...",
-        "CHANNEL_ACCESS_SECRET": "..."
+        "CHANNEL_ACCESS_SECRET": "...",
+        "CHANNEL_ALLOW_SEND": "true"
       }
     }
   }

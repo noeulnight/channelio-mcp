@@ -63,4 +63,15 @@ describe('compactError', () => {
       message: 'Invalid input',
     });
   });
+
+  it('tells the agent when to retry a rate-limited call', () => {
+    expect(compactError(429, 'Too Many Requests', { message: 'Rate limited' }, '10')).toEqual({
+      status: 429,
+      statusText: 'Too Many Requests',
+      message: 'Rate limited',
+      retryable: true,
+      retryAfter: '10',
+      action: 'Retry the same tool after 10.',
+    });
+  });
 });

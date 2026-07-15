@@ -5,6 +5,7 @@ export interface ChannelApiConfig {
   accessSecret: string;
   version: string;
   baseUrl: string;
+  allowSend: boolean;
 }
 
 export interface ChannelApiResponse {
@@ -12,6 +13,7 @@ export interface ChannelApiResponse {
   status: number;
   statusText: string;
   body: unknown;
+  retryAfter?: string;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ChannelApiConfig {
@@ -26,6 +28,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ChannelApiC
     accessSecret,
     version: env.CHANNEL_VERSION ?? '2026-06-01',
     baseUrl: (env.CHANNEL_API_BASE_URL ?? 'https://api.channel.io').replace(/\/$/, ''),
+    allowSend: env.CHANNEL_ALLOW_SEND === 'true',
   };
 }
 
@@ -90,5 +93,8 @@ export async function callChannelApi(
     status: response.status,
     statusText: response.statusText,
     body,
+    ...(response.headers.get('retry-after')
+      ? { retryAfter: response.headers.get('retry-after')! }
+      : {}),
   };
 }

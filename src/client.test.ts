@@ -8,6 +8,7 @@ const config: ChannelApiConfig = {
   accessSecret: 'secret',
   version: '2026-06-01',
   baseUrl: 'https://api.channel.io',
+  allowSend: false,
 };
 
 const operation: ApiOperation = {
@@ -34,7 +35,25 @@ describe('configFromEnv', () => {
       accessSecret: 'secret',
       version: '2026-06-01',
       baseUrl: 'http://localhost:3000',
+      allowSend: false,
     });
+  });
+
+  it('enables message sending only for the literal true value', () => {
+    expect(
+      configFromEnv({
+        CHANNEL_ACCESS_KEY: 'key',
+        CHANNEL_ACCESS_SECRET: 'secret',
+        CHANNEL_ALLOW_SEND: 'true',
+      }).allowSend,
+    ).toBe(true);
+    expect(
+      configFromEnv({
+        CHANNEL_ACCESS_KEY: 'key',
+        CHANNEL_ACCESS_SECRET: 'secret',
+        CHANNEL_ALLOW_SEND: 'TRUE',
+      }).allowSend,
+    ).toBe(false);
   });
 });
 
@@ -81,5 +100,21 @@ describe('callChannelApi', () => {
       statusText: '',
       body: { ok: true },
     });
+  });
+
+  it('passes Retry-After through for the agent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Rate limited' }), {
+          status: 429,
+          headers: { 'retry-after': '10' },
+        }),
+      ),
+    );
+
+    await expect(
+      callChannelApi(config, operation, { path: { userChatId: 'chat-1' } }),
+    ).resolves.toMatchObject({ status: 429, retryAfter: '10' });
   });
 });

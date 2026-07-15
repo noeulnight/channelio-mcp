@@ -168,7 +168,12 @@ export function compactResponse(kind: ResponseKind, value: unknown): unknown {
   }
 }
 
-export function compactError(status: number, statusText: string, value: unknown): unknown {
+export function compactError(
+  status: number,
+  statusText: string,
+  value: unknown,
+  retryAfter?: string,
+): unknown {
   const source = record(value);
   const nested = record(source?.error);
   return clean({
@@ -176,5 +181,13 @@ export function compactError(status: number, statusText: string, value: unknown)
     statusText,
     code: source?.code ?? nested?.code,
     message: source?.message ?? nested?.message,
+    retryable: status === 429 ? true : undefined,
+    retryAfter,
+    action:
+      status === 429
+        ? retryAfter
+          ? `Retry the same tool after ${retryAfter}.`
+          : 'Retry the same tool later.'
+        : undefined,
   });
 }

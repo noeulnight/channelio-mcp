@@ -435,7 +435,7 @@ export const toolEntries = {
   }),
 };
 
-export function registerTools(server: McpServer, execute: ExecuteTool): void {
+export function registerTools(server: McpServer, execute: ExecuteTool, allowSend = false): void {
   const getUser = toolEntries.get_user;
   server.registerTool(
     getUser.name,
@@ -491,16 +491,18 @@ export function registerTools(server: McpServer, execute: ExecuteTool): void {
     (args) => execute(listMessages.resolve(args)),
   );
 
-  const sendMessage = toolEntries.send_user_chat_message;
-  server.registerTool(
-    sendMessage.name,
-    {
-      title: sendMessage.title,
-      description: sendMessage.description,
-      inputSchema: sendMessage.schema,
-    },
-    (args) => execute(sendMessage.resolve(args)),
-  );
+  if (allowSend) {
+    const sendMessage = toolEntries.send_user_chat_message;
+    server.registerTool(
+      sendMessage.name,
+      {
+        title: sendMessage.title,
+        description: sendMessage.description,
+        inputSchema: sendMessage.schema,
+      },
+      (args) => execute(sendMessage.resolve(args)),
+    );
+  }
 
   const getFileUrl = toolEntries.get_user_chat_message_file_url;
   server.registerTool(
