@@ -1,0 +1,40 @@
+{
+  "name": "@noeulnight/channelio-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the Channel.io Open API",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noeulnight/channelio-mcp.git"
+  },
+  "bin": {
+    "channelio-mcp": "dist/index.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "check": "vp check",
+    "test": "vp test",
+    "prepublishOnly": "vp check && vp test && vp pack"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vite-plus": "^0.1.12",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.27.0"
+}
