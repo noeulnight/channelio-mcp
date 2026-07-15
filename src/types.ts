@@ -1,6 +1,7 @@
 export type JsonSchema = Record<string, unknown>;
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
+export type SendMode = 'disabled' | 'internal' | 'all';
 
 export interface ApiOperation {
   method: HttpMethod;

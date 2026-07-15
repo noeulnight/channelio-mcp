@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { toolEntries } from './tools.js';
+import { applySendMode, toolEntries } from './tools.js';
 
 describe('toolEntries', () => {
   it('exposes only the 11 curated tools', () => {
@@ -17,6 +17,21 @@ describe('toolEntries', () => {
       'assign_user_chat',
       'invite_managers_to_user_chat',
     ]);
+  });
+});
+
+describe('send mode', () => {
+  it('forces internal messages to be private without duplicating the option', () => {
+    const body: { options?: string[] | undefined } = {};
+    applySendMode(body, 'internal');
+    applySendMode(body, 'internal');
+    expect(body.options).toEqual(['private']);
+  });
+
+  it('leaves all-mode message options unchanged', () => {
+    const body = { options: ['silent'] };
+    applySendMode(body, 'all');
+    expect(body.options).toEqual(['silent']);
   });
 });
 

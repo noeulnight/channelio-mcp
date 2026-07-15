@@ -12,7 +12,7 @@ function format(value: unknown): string {
 }
 
 export function createServer(config: ChannelApiConfig): McpServer {
-  const server = new McpServer({ name: '@noeulnight/channelio-mcp', version: '0.1.0' });
+  const server = new McpServer({ name: '@noeulnight/channelio-mcp', version: '0.1.1' });
   const execute = async (resolved: ResolvedToolCall): Promise<CallToolResult> => {
     try {
       const result = await callChannelApi(config, resolved.operation, resolved.arguments);
@@ -43,6 +43,6 @@ export function createServer(config: ChannelApiConfig): McpServer {
     }
   };
 
-  registerTools(server, execute, config.allowSend);
+  registerTools(server, execute, config.sendMode);
   return server;
 }

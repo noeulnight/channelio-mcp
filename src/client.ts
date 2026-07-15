@@ -1,11 +1,11 @@
-import type { ApiOperation, QueryValue, ToolArguments } from './types.js';
+import type { ApiOperation, QueryValue, SendMode, ToolArguments } from './types.js';
 
 export interface ChannelApiConfig {
   accessKey: string;
   accessSecret: string;
   version: string;
   baseUrl: string;
-  allowSend: boolean;
+  sendMode: SendMode;
 }
 
 export interface ChannelApiResponse {
@@ -14,6 +14,18 @@ export interface ChannelApiResponse {
   statusText: string;
   body: unknown;
   retryAfter?: string;
+}
+
+function sendModeFromEnv(value: string | undefined): SendMode {
+  const sendMode = value ?? 'disabled';
+  switch (sendMode) {
+    case 'disabled':
+    case 'internal':
+    case 'all':
+      return sendMode;
+    default:
+      throw new Error('CHANNEL_SEND_MODE must be disabled, internal, or all');
+  }
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ChannelApiConfig {
@@ -28,7 +40,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ChannelApiC
     accessSecret,
     version: env.CHANNEL_VERSION ?? '2026-06-01',
     baseUrl: (env.CHANNEL_API_BASE_URL ?? 'https://api.channel.io').replace(/\/$/, ''),
-    allowSend: env.CHANNEL_ALLOW_SEND === 'true',
+    sendMode: sendModeFromEnv(env.CHANNEL_SEND_MODE),
   };
 }
 

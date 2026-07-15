@@ -8,7 +8,7 @@ const config: ChannelApiConfig = {
   accessSecret: 'secret',
   version: '2026-06-01',
   baseUrl: 'https://api.channel.io',
-  allowSend: false,
+  sendMode: 'disabled',
 };
 
 const operation: ApiOperation = {
@@ -35,25 +35,28 @@ describe('configFromEnv', () => {
       accessSecret: 'secret',
       version: '2026-06-01',
       baseUrl: 'http://localhost:3000',
-      allowSend: false,
+      sendMode: 'disabled',
     });
   });
 
-  it('enables message sending only for the literal true value', () => {
+  it.each(['disabled', 'internal', 'all'] as const)('accepts the %s send mode', (sendMode) => {
     expect(
       configFromEnv({
         CHANNEL_ACCESS_KEY: 'key',
         CHANNEL_ACCESS_SECRET: 'secret',
-        CHANNEL_ALLOW_SEND: 'true',
-      }).allowSend,
-    ).toBe(true);
-    expect(
+        CHANNEL_SEND_MODE: sendMode,
+      }).sendMode,
+    ).toBe(sendMode);
+  });
+
+  it('rejects an unknown send mode', () => {
+    expect(() =>
       configFromEnv({
         CHANNEL_ACCESS_KEY: 'key',
         CHANNEL_ACCESS_SECRET: 'secret',
-        CHANNEL_ALLOW_SEND: 'TRUE',
-      }).allowSend,
-    ).toBe(false);
+        CHANNEL_SEND_MODE: 'public',
+      }),
+    ).toThrow('CHANNEL_SEND_MODE must be disabled, internal, or all');
   });
 });
 

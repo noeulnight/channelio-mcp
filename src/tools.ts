@@ -3,7 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import type { ResponseKind } from './response.js';
-import type { ApiOperation, QueryValue, ToolArguments } from './types.js';
+import type { ApiOperation, QueryValue, SendMode, ToolArguments } from './types.js';
 
 export interface ResolvedToolCall {
   operation: ApiOperation;
@@ -104,6 +104,12 @@ const messageBodySchema = z.strictObject({
     .describe('메시지 전달 및 표시 옵션')
     .optional(),
 });
+
+export function applySendMode(body: { options?: string[] | undefined }, sendMode: SendMode): void {
+  if (sendMode === 'internal') {
+    body.options = [...new Set([...(body.options ?? []), 'private'])];
+  }
+}
 
 const userLookupSchema = z
   .strictObject({
@@ -435,7 +441,11 @@ export const toolEntries = {
   }),
 };
 
-export function registerTools(server: McpServer, execute: ExecuteTool, allowSend = false): void {
+export function registerTools(
+  server: McpServer,
+  execute: ExecuteTool,
+  sendMode: SendMode = 'disabled',
+): void {
   const getUser = toolEntries.get_user;
   server.registerTool(
     getUser.name,
@@ -491,7 +501,7 @@ export function registerTools(server: McpServer, execute: ExecuteTool, allowSend
     (args) => execute(listMessages.resolve(args)),
   );
 
-  if (allowSend) {
+  if (sendMode !== 'disabled') {
     const sendMessage = toolEntries.send_user_chat_message;
     server.registerTool(
       sendMessage.name,
@@ -500,7 +510,10 @@ export function registerTools(server: McpServer, execute: ExecuteTool, allowSend
         description: sendMessage.description,
         inputSchema: sendMessage.schema,
       },
-      (args) => execute(sendMessage.resolve(args)),
+      (args) => {
+        applySendMode(args.body, sendMode);
+        return execute(sendMessage.resolve(args));
+      },
     );
   }
 
